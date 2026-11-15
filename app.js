@@ -253,13 +253,13 @@
     byId('loaded-count').textContent=`${String(visible.length).padStart(2,'0')} / ${String(available.length).padStart(2,'0')} WORKS`;
     byId('load-more').hidden=visible.length>=available.length;
     byId('category-caption').textContent=categories.find(c=>c.id===activeCategory).caption;
-    document.querySelectorAll('.filter').forEach(btn=>{const selected=btn.dataset.filter===activeCategory;btn.classList.toggle('active',selected);btn.setAttribute('aria-pressed',String(selected));});
+    byId('filters').querySelectorAll('.filter').forEach(btn=>{const selected=btn.dataset.filter===activeCategory;btn.classList.toggle('active',selected);btn.setAttribute('aria-pressed',String(selected));});
   }
   categories.forEach(c=>{
     const count=projects.filter(p=>!p.placeholder&&(c.id==='all'||p.category===c.id)).length;
     const btn=document.createElement('button');btn.type='button';btn.className='filter';btn.dataset.filter=c.id;btn.setAttribute('aria-pressed',String(c.id==='all'));
     btn.setAttribute('aria-label',`${c.name} ${c.zh}，${count}个真实案例`);
-    btn.innerHTML=`${c.name}<sup>${String(count).padStart(2,'0')}</sup>`;
+    btn.innerHTML=`<span>${c.name}<sup>${String(count).padStart(2,'0')}</sup></span><small>${c.zh}</small>`;
     btn.addEventListener('click',()=>{activeCategory=c.id;visibleLimit=12;renderGallery();});
     byId('filters').append(btn);
   });
@@ -272,7 +272,7 @@
   let workflowDrag=null;
   const productionType=type=>({image:'生图',video:'视频',audio:'音频',other:'处理'}[type]||'处理');
   const scalar=value=>value==null?'':typeof value==='object'?JSON.stringify(value):String(value);
-  const displayAspectRatio=value=>/^adaptive$/i.test(scalar(value).trim())?'自适应':scalar(value)||'待核实';
+  const displayAspectRatio=value=>/^adaptive$/i.test(scalar(value).trim())?'自适应':scalar(value);
   function displayParameterValue(item){
     const value=scalar(item.value);
     if(item.label!=='时长')return value;
@@ -286,7 +286,7 @@
   }
   function modelName(step){
     const name=typeof step.model==='string'?step.model:step.model?.name;
-    return !name||/^comfy\s*ui$/i.test(name)?'底层模型待核实':name;
+    return !name||/^comfy\s*ui$|待核实/i.test(name)?'':name;
   }
   function modelDisplayName(step){
     const name=modelName(step);
@@ -302,13 +302,14 @@
     const making=byId('detail-making');
     const panel=byId('detail-making-panel');
     panel.open=false;promptRecords.clear();
+    panel.closest('.making-section').hidden=false;
     modelSection.hidden=true;byId('detail-models').replaceChildren();
     if(!production){
-      making.innerHTML='<p class="production-empty">此作品的制作流程、模型与提示词尚待归档。</p>';
+      making.replaceChildren();panel.closest('.making-section').hidden=true;
       return;
     }
     const steps=Array.isArray(production.steps)?production.steps.filter(step=>step&&typeof step==='object'):[];
-    const modelSteps=steps.filter(step=>step.type==='image'||step.type==='video'||step.model?.name||typeof step.model==='string');
+    const modelSteps=steps.filter(step=>modelName(step));
     if(modelSteps.length){
       modelSection.hidden=false;
       byId('detail-production-kind').textContent=production.selfDeveloped?'自研流程':'';
@@ -318,7 +319,7 @@
         if(seen.has(key))return false;seen.add(key);return true;
       }).map(step=>{
         const version=modelVersion(step);
-        const note=version||((step.nodeType&&/comfy/i.test(step.nodeType))?'ComfyUI 工作流':(step.model?.status==='verified'?'': '模型版本待核实'));
+        const note=version||((step.nodeType&&/comfy/i.test(step.nodeType))?'ComfyUI 工作流':'');
         return `<div class="model-tile"><span class="model-role">${productionType(step.type)}</span><div><strong title="${escapeHTML(modelName(step))}">${escapeHTML(modelDisplayName(step))}</strong>${note?`<small>${escapeHTML(note)}</small>`:''}</div></div>`;
       }).join('');
     }
@@ -328,9 +329,9 @@
     const renderedSteps=steps.map((step,index)=>{
       const type=productionType(step.type);
       const version=modelVersion(step);
-      const hasModel=step.type==='image'||step.type==='video'||(typeof step.model==='string'?step.model.trim():step.model?.name);
+      const hasModel=Boolean(modelName(step));
       const model=hasModel?`<span><b>模型</b>${escapeHTML(modelName(step))}${version?` · ${escapeHTML(version)}`:''}</span>`:'';
-      const ratio=step.type==='image'||step.type==='video'?`<span><b>画布比例</b>${escapeHTML(displayAspectRatio(step.aspectRatio))}</span>`:'';
+      const ratio=(step.type==='image'||step.type==='video')&&displayAspectRatio(step.aspectRatio)?`<span><b>画布比例</b>${escapeHTML(displayAspectRatio(step.aspectRatio))}</span>`:'';
       const nodeType=step.nodeType&&/comfy/i.test(step.nodeType)?'<p class="production-step-note">流程引擎：ComfyUI；生成模型以该步骤实际模型配置为准。</p>':'';
       const parameters=Array.isArray(step.parameters)?step.parameters.filter(item=>item&&item.label&&item.value!=null&&!/(?:prompt|提示词|token|credential|api.?key|access.?key|密钥|鉴权)/i.test(item.label)).map(item=>`<span><b>${escapeHTML(item.label)}</b>${escapeHTML(displayParameterValue(item))}</span>`).join(''):'';
       let prompt='';
@@ -338,14 +339,12 @@
         const key=`prompt-${index}`;promptRecords.set(key,step.prompt);
         const promptLabel=`第 ${index+1} 步 ${step.title||type}`;
         prompt=`<details class="production-prompt" data-prompt-key="${key}"><summary>查看${type}提示词<span aria-hidden="true">+</span></summary><div class="prompt-body"><pre tabindex="0" aria-label="${escapeHTML(promptLabel)}完整提示词"><code></code></pre><button type="button" class="copy-prompt" data-copy-prompt="${key}" aria-label="复制${escapeHTML(promptLabel)}完整提示词">复制全文</button><span class="prompt-copy-status" aria-live="polite"></span></div></details>`;
-      } else if(!production.selfDeveloped&&!step.promptOmitted&&(step.type==='image'||step.type==='video')){
-        prompt='<p class="production-step-note">此步骤的提示词尚待核实。</p>';
       }
       return `<section class="production-step"><div class="production-step-title"><span>${String(index+1).padStart(2,'0')}</span><h4>${escapeHTML(step.title||type)}</h4><small>${type}</small></div><div class="production-step-meta">${model}${ratio}${parameters}</div>${nodeType}${prompt}</section>`;
     }).join('');
-    const notes=Array.isArray(production.notes)?production.notes.filter(note=>typeof note==='string'&&note.trim()):[];
     const nodeGuide=steps.length?'<p class="production-step-note">以下为节点信息，实际连接与分支关系见工作流图。</p>':'';
-    making.innerHTML=`${workflow}${nodeGuide}${renderedSteps}${production.selfDeveloped?'<p class="production-self-note">自研版本 · 提示词省略</p>':''}${!workflow&&!steps.length?'<p class="production-empty">此作品的工作流与模型记录尚待归档。</p>':''}${notes.length?`<details class="production-notes"><summary>归档说明</summary>${notes.map(note=>`<p>${escapeHTML(note)}</p>`).join('')}</details>`:''}`;
+    making.innerHTML=`${workflow}${nodeGuide}${renderedSteps}${production.selfDeveloped?'<p class="production-self-note">自研工作流</p>':''}`;
+    panel.closest('.making-section').hidden=!workflow&&!steps.length;
     const thumbnail=making.querySelector('img[data-workflow-src]');
     if(thumbnail)thumbnail.addEventListener('error',()=>{thumbnail.hidden=true;making.querySelector('.workflow-load-error').hidden=false;});
     making.querySelectorAll('.production-prompt').forEach(details=>details.addEventListener('toggle',()=>{
@@ -428,22 +427,22 @@
     byId('detail-summary').textContent=p.summary;
     const player=byId('detail-player');player.querySelectorAll('video').forEach(v=>v.pause());
     player.innerHTML=`<video class="detail-video" controls playsinline preload="metadata" poster="${p.poster}" src="${p.video}" aria-label="${escapeHTML(p.title)}完整视频"></video>`;
-    // 详情不强制开启声音或自动播放；用户可用原生播放和音量控件观看。
+    const fullVideo=player.querySelector('video');
+    fullVideo.muted=false;fullVideo.defaultMuted=false;fullVideo.volume=1;
     const input=byId('detail-input');
-    input.innerHTML=`<div><strong>WATCH THE FULL EFFECT / 完整成片</strong>点击播放，开启声音观看。${p.isNew?`<br>上新 ${p.onlineDays} 天的成绩对应 ${p.asOf} 截图记录。`:''}</div>`;
-    byId('detail-meta').innerHTML=`<span>9:16 / ${p.duration.toFixed(1)}s</span>${p.publishedAt?`<span>上线 ${p.publishedAt.replaceAll('-','.')}</span>`:''}${p.production?.templateId?`<span class="detail-template-id">TTID ${escapeHTML(p.production.templateId)}</span>`:''}`;
+    input.innerHTML='<div><strong>WATCH THE FULL EFFECT / 完整成片</strong><span class="template-playback-status">原声播放 · 可使用播放器调整音量</span></div>';
+    byId('detail-meta').innerHTML=`<span>${escapeHTML(p.aspect.replace('/',':'))} / ${p.duration.toFixed(1)}s</span>${p.publishedAt?`<span>上线 ${p.publishedAt.slice(0,4)}</span>`:''}`;
     const detailMetrics=headlineMetrics(p);
     if(p.metrics.conversion!=null)detailMetrics.push({value:p.metrics.conversion.toFixed(2)+'%',label:'曝光→生成转化率 UV'});
-    byId('detail-metrics').innerHTML=detailMetrics.length?detailMetrics.map(m=>`<div class="detail-metric"><span>${m.label}</span><strong>${m.value}</strong></div>`).join(''):'<p class="metric-note">此作品的上线数据尚待归档。</p>';
-    byId('metric-note').textContent=`截图采集于 ${p.asOf.replaceAll('-','.')} · 积分按原始缩写精度展示。`;
-    byId('detail-definitions').innerHTML=`<p>订单：${p.metricDefinitions.orders}</p><p>积分：${p.metricDefinitions.credits}</p>${p.metrics.conversion!=null?`<p>转化：${p.metricDefinitions.conversion}</p>`:''}<p>截图未显示独立统计区间；上新天数按上线日到截图采集日计算，固定对应这次成绩快照。</p>`;
-    dialog.querySelector('.detail-source').open=false;
+    byId('detail-metrics').innerHTML=detailMetrics.map(m=>`<div class="detail-metric"><span>${m.label}</span><strong>${m.value}</strong></div>`).join('');
+    byId('detail-metrics').closest('.detail-section').hidden=!detailMetrics.length;
     renderProduction(p);
     const list=visibleProjects();const index=list.findIndex(item=>item.id===id);
     byId('detail-counter').textContent=`${String(index+1).padStart(2,'0')} / ${String(list.length).padStart(2,'0')}`;
     byId('prev-project').disabled=index<=0;byId('next-project').disabled=index===list.length-1;
     if(!dialog.open){dialog.showModal();document.body.classList.add('modal-open');}
     dialog.scrollTop=0;
+    fullVideo.play()?.catch(()=>{if(dialog.open&&currentId===id)input.querySelector('.template-playback-status').textContent='点击播放键，开启声音观看完整效果。';});
   }
   byId('close-detail').addEventListener('click',()=>dialog.close());
   dialog.addEventListener('click',event=>{if(event.target===dialog){const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)dialog.close();}});
